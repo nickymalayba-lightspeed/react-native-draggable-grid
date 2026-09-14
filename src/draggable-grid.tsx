@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   PanResponder,
   Animated,
@@ -124,6 +124,12 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function onBlockPress(itemIndex: number) {
     props.onItemPress && props.onItemPress(items[itemIndex].itemData)
   }
+  const onLongPressBlock = useCallback(
+    (itemIndex: number, item: DataType) => {
+      setActiveBlock(itemIndex, item)
+    },
+    []
+  )
   function onStartDrag(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
@@ -144,7 +150,10 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       x: I18nManager.isRTL ? -moveX : moveX,
       y: moveY,
     })
+    return true
   }
+  let moveThrottleFrame = 0
+
   function onHandMove(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
@@ -162,6 +171,10 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     const originPosition = blockPositions[orderMap[activeItem.key].order]
     const dragPositionToActivePositionDistance = getDistance(dragPosition, originPosition)
     activeItem.currentPosition.setValue(dragPosition)
+
+    // Throttle expensive resorting/animation work to every other frame
+    moveThrottleFrame = (moveThrottleFrame + 1) % 2
+    if (moveThrottleFrame !== 0) return
 
     let closetItemIndex = activeItemIndex as number
     let closetDistance = dragPositionToActivePositionDistance
@@ -188,6 +201,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       orderMap[activeItem.key].order = closetOrder
       props.onResetSort && props.onResetSort(getSortData())
     }
+    return true
   }
   function onHandRelease() {
     const activeItem = getActiveItem()
@@ -197,6 +211,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     activeItem.currentPosition.flattenOffset()
     moveBlockToBlockOrderPosition(activeItem.key)
     setActiveItemIndex(undefined)
+    return true
   }
   function resetBlockPositionByOrder(activeItemOrder: number, insertedPositionOrder: number) {
     let disabledReSortedItemCount = 0
@@ -259,6 +274,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     setPanResponderCapture(true)
     setActiveItemIndex(itemIndex)
   }
+
   function startDragStartAnimation() {
     if (!props.dragStartAnimation) {
       dragStartAnimatedValue.setValue(1)
@@ -374,7 +390,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     return (
       <Block
         onPress={onBlockPress.bind(null, itemIndex)}
-        onLongPress={setActiveBlock.bind(null, itemIndex, item.itemData)}
+        onLongPress={onLongPressBlock.bind(null, itemIndex, item.itemData)}
         panHandlers={panResponder.panHandlers}
         style={getBlockStyle(itemIndex)}
         dragStartAnimationStyle={getDragStartAnimation(itemIndex)}
