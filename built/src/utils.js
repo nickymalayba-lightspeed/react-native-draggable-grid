@@ -1,8 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findKey = findKey;
-exports.findIndex = findIndex;
-exports.differenceBy = differenceBy;
+exports.differenceBy = exports.findIndex = exports.findKey = void 0;
 function findKey(map, fn) {
     var keys = Object.keys(map);
     for (var i = 0; i < keys.length; i++) {
@@ -12,6 +10,7 @@ function findKey(map, fn) {
     }
     return undefined;
 }
+exports.findKey = findKey;
 function findIndex(arr, fn) {
     for (var i = 0; i < arr.length; i++) {
         if (fn(arr[i])) {
@@ -20,6 +19,7 @@ function findIndex(arr, fn) {
     }
     return -1;
 }
+exports.findIndex = findIndex;
 function differenceBy(arr1, arr2, key) {
     var result = [];
     arr1.forEach(function (item1) {
@@ -30,4 +30,5 @@ function differenceBy(arr1, arr2, key) {
     });
     return result;
 }
+exports.differenceBy = differenceBy;
 //# sourceMappingURL=utils.js.map

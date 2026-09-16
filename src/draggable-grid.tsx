@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   PanResponder,
   Animated,
@@ -75,6 +75,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     height: 0,
   })
   const [activeItemIndex, setActiveItemIndex] = useState<undefined | number>()
+  const isDraggingRef = useRef(false)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
     if (!hadInitBlockSize) {
@@ -98,6 +99,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     onPanResponderGrant: onStartDrag,
     onPanResponderMove: onHandMove,
     onPanResponderRelease: onHandRelease,
+    onPanResponderTerminate: onHandRelease,
   })
 
   function initBlockPositions() {
@@ -133,6 +135,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function onStartDrag(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
+    isDraggingRef.current = true
     props.onDragStart && props.onDragStart(activeItem.itemData)
     const { x0, y0, moveX, moveY } = gestureState
     const activeOrigin = blockPositions[orderMap[activeItem.key].order]
@@ -206,12 +209,18 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function onHandRelease() {
     const activeItem = getActiveItem()
     if (!activeItem) return false
+    isDraggingRef.current = false
     props.onDragRelease && props.onDragRelease(getSortData())
     setPanResponderCapture(false)
     activeItem.currentPosition.flattenOffset()
     moveBlockToBlockOrderPosition(activeItem.key)
     setActiveItemIndex(undefined)
     return true
+  }
+  function onBlockPressOut(itemIndex: number) {
+    if (activeItemIndex === itemIndex && !isDraggingRef.current) {
+      onHandRelease()
+    }
   }
   function resetBlockPositionByOrder(activeItemOrder: number, insertedPositionOrder: number) {
     let disabledReSortedItemCount = 0
@@ -391,13 +400,16 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       <Block
         onPress={onBlockPress.bind(null, itemIndex)}
         onLongPress={onLongPressBlock.bind(null, itemIndex, item.itemData)}
+        onPressOut={onBlockPressOut.bind(null, itemIndex)}
         panHandlers={panResponder.panHandlers}
         style={getBlockStyle(itemIndex)}
         dragStartAnimationStyle={getDragStartAnimation(itemIndex)}
         delayLongPress={props.delayLongPress || 300}
-        key={item.key}>
-        {props.renderItem(item.itemData, orderMap[item.key].order)}
-      </Block>
+        key={item.key}
+        item={item.itemData}
+        order={orderMap[item.key].order}
+        renderItem={props.renderItem}
+      />
     )
   })
 

@@ -10,14 +10,18 @@ import {
 } from 'react-native'
 import { FunctionComponent } from 'react'
 
-interface BlockProps {
+interface BlockProps<DataType = any> {
   style?: StyleProp<any>
   dragStartAnimationStyle: StyleProp<any>
   onPress?: () => void
   onLongPress: () => void
+  onPressOut?: () => void
   panHandlers: GestureResponderHandlers
   delayLongPress: number
   children?: React.ReactNode
+  item?: DataType
+  order?: number
+  renderItem?: (item: DataType, order: number) => React.ReactElement<any>
 }
 
 const Block: FunctionComponent<BlockProps> = ({
@@ -25,9 +29,13 @@ const Block: FunctionComponent<BlockProps> = ({
   dragStartAnimationStyle,
   onPress,
   onLongPress,
+  onPressOut,
   children,
   panHandlers,
   delayLongPress,
+  item,
+  order,
+  renderItem,
 }) => {
   return (
     <Animated.View style={[styles.blockContainer, style, dragStartAnimationStyle]} {...panHandlers}>
@@ -35,8 +43,11 @@ const Block: FunctionComponent<BlockProps> = ({
         <TouchableWithoutFeedback
           delayLongPress={delayLongPress}
           onPress={onPress}
-          onLongPress={onLongPress}>
-          {children}
+          onLongPress={onLongPress}
+          onPressOut={onPressOut}>
+          {renderItem && item !== undefined && order !== undefined
+            ? renderItem(item, order)
+            : children}
         </TouchableWithoutFeedback>
       </Animated.View>
     </Animated.View>
@@ -47,10 +58,13 @@ const Block: FunctionComponent<BlockProps> = ({
 // The style prop contains Animated.Value references that drive layout on the native
 // thread without React re-renders, so we only compare props that affect the React tree.
 const MemoizedBlock = React.memo(Block, (prev, next) => {
-  if (prev.children !== next.children) return false
   if (prev.dragStartAnimationStyle !== next.dragStartAnimationStyle) return false
   if (prev.delayLongPress !== next.delayLongPress) return false
-  // style/onPress/onLongPress/panHandlers may be new references each parent render
+  if (prev.item !== next.item) return false
+  if (prev.order !== next.order) return false
+  if (prev.renderItem !== next.renderItem) return false
+  if (!prev.renderItem && !next.renderItem && prev.children !== next.children) return false
+  // style/onPress/onLongPress/onPressOut/panHandlers may be new references each parent render
   // but rely on mutable refs/Animated values; skipping them prevents drag cascades.
   return true
 })
