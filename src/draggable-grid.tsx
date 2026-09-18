@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   PanResponder,
   Animated,
@@ -75,6 +75,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     height: 0,
   })
   const [activeItemIndex, setActiveItemIndex] = useState<undefined | number>()
+  const isDraggingRef = useRef(false)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
     if (!hadInitBlockSize) {
@@ -98,6 +99,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     onPanResponderGrant: onStartDrag,
     onPanResponderMove: onHandMove,
     onPanResponderRelease: onHandRelease,
+    onPanResponderTerminate: onHandRelease,
   })
 
   function initBlockPositions() {
@@ -124,9 +126,16 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function onBlockPress(itemIndex: number) {
     props.onItemPress && props.onItemPress(items[itemIndex].itemData)
   }
+  const onLongPressBlock = useCallback(
+    (itemIndex: number, item: DataType) => {
+      setActiveBlock(itemIndex, item)
+    },
+    []
+  )
   function onStartDrag(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
+    isDraggingRef.current = true
     props.onDragStart && props.onDragStart(activeItem.itemData)
     const { x0, y0, moveX, moveY } = gestureState
     const activeOrigin = blockPositions[orderMap[activeItem.key].order]
@@ -144,7 +153,10 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       x: I18nManager.isRTL ? -moveX : moveX,
       y: moveY,
     })
+    return true
   }
+  let moveThrottleFrame = 0
+
   function onHandMove(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
@@ -162,6 +174,10 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     const originPosition = blockPositions[orderMap[activeItem.key].order]
     const dragPositionToActivePositionDistance = getDistance(dragPosition, originPosition)
     activeItem.currentPosition.setValue(dragPosition)
+
+    // Throttle expensive resorting/animation work to every other frame
+    moveThrottleFrame = (moveThrottleFrame + 1) % 2
+    if (moveThrottleFrame !== 0) return
 
     let closetItemIndex = activeItemIndex as number
     let closetDistance = dragPositionToActivePositionDistance
@@ -188,15 +204,23 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       orderMap[activeItem.key].order = closetOrder
       props.onResetSort && props.onResetSort(getSortData())
     }
+    return true
   }
   function onHandRelease() {
     const activeItem = getActiveItem()
     if (!activeItem) return false
+    isDraggingRef.current = false
     props.onDragRelease && props.onDragRelease(getSortData())
     setPanResponderCapture(false)
     activeItem.currentPosition.flattenOffset()
     moveBlockToBlockOrderPosition(activeItem.key)
     setActiveItemIndex(undefined)
+    return true
+  }
+  function onBlockPressOut(itemIndex: number) {
+    if (activeItemIndex === itemIndex && !isDraggingRef.current) {
+      onHandRelease()
+    }
   }
   function resetBlockPositionByOrder(activeItemOrder: number, insertedPositionOrder: number) {
     let disabledReSortedItemCount = 0
@@ -259,6 +283,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     setPanResponderCapture(true)
     setActiveItemIndex(itemIndex)
   }
+
   function startDragStartAnimation() {
     if (!props.dragStartAnimation) {
       dragStartAnimatedValue.setValue(1)
@@ -374,14 +399,17 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     return (
       <Block
         onPress={onBlockPress.bind(null, itemIndex)}
-        onLongPress={setActiveBlock.bind(null, itemIndex, item.itemData)}
+        onLongPress={onLongPressBlock.bind(null, itemIndex, item.itemData)}
+        onPressOut={onBlockPressOut.bind(null, itemIndex)}
         panHandlers={panResponder.panHandlers}
         style={getBlockStyle(itemIndex)}
         dragStartAnimationStyle={getDragStartAnimation(itemIndex)}
         delayLongPress={props.delayLongPress || 300}
-        key={item.key}>
-        {props.renderItem(item.itemData, orderMap[item.key].order)}
-      </Block>
+        key={item.key}
+        item={item.itemData}
+        order={orderMap[item.key].order}
+        renderItem={props.renderItem}
+      />
     )
   })
 
