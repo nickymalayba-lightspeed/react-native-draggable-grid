@@ -5,6 +5,7 @@ function findKey<T>(map: { [key: string]: T }, fn: (item: T) => boolean) {
       return keys[i]
     }
   }
+  return undefined
 }
 
 function findIndex<T>(arr: T[], fn: (item: T) => boolean) {
