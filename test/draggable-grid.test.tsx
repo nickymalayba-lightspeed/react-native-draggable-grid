@@ -1,0 +1,259 @@
+jest.mock('react-native', () => {
+  const panResponderConfigs: any[] = []
+
+  class AnimatedValue {
+    private value: number
+    constructor(value: number) {
+      this.value = value
+    }
+    setValue(value: number) {
+      this.value = value
+    }
+  }
+
+  class AnimatedValueXY {
+    x: number
+    y: number
+    private offset: { x: number; y: number }
+    constructor(initial: { x: number; y: number } = { x: 0, y: 0 }) {
+      this.x = initial.x
+      this.y = initial.y
+      this.offset = { x: 0, y: 0 }
+    }
+    setValue(value: { x: number; y: number }) {
+      this.x = value.x
+      this.y = value.y
+    }
+    setOffset(offset: { x: number; y: number }) {
+      this.offset = offset
+    }
+    flattenOffset() {
+      this.x += this.offset.x
+      this.y += this.offset.y
+      this.offset = { x: 0, y: 0 }
+    }
+    getLayout() {
+      return { left: this.x + this.offset.x, top: this.y + this.offset.y }
+    }
+  }
+
+  return {
+    // Bypasses PanResponder's real touch-history/native responder plumbing so tests
+    // can invoke the grant/move/release handlers directly with fabricated gestureStates.
+    PanResponder: {
+      create: (config: any) => {
+        panResponderConfigs.push(config)
+        return { panHandlers: {} }
+      },
+    },
+    Animated: {
+      View: 'AnimatedView',
+      Value: AnimatedValue,
+      ValueXY: AnimatedValueXY,
+      timing: (value: any, config: any) => ({
+        start: (cb?: (result: { finished: boolean }) => void) => {
+          value.setValue(config.toValue)
+          cb && cb({ finished: true })
+        },
+      }),
+    },
+    StyleSheet: {
+      create: (styles: any) => styles,
+    },
+    Platform: { OS: 'ios' },
+    I18nManager: { isRTL: false },
+    TouchableWithoutFeedback: 'TouchableWithoutFeedback',
+    __panResponderConfigs: panResponderConfigs,
+  }
+})
+
+import * as React from 'react'
+import * as TestRenderer from 'react-test-renderer'
+import * as ReactNative from 'react-native'
+import { DraggableGrid, IDraggableGridProps } from '../src/draggable-grid'
+import { Block } from '../src/block'
+
+interface Item {
+  key: string
+  label: string
+  disabledDrag?: boolean
+  disabledReSorted?: boolean
+}
+
+function getPanResponderConfigs(): any[] {
+  return (ReactNative as any).__panResponderConfigs
+}
+
+function latestPanResponderConfig() {
+  const configs = getPanResponderConfigs()
+  return configs[configs.length - 1]
+}
+
+function renderItem(item: Item) {
+  return <>{item.label}</>
+}
+
+function renderGrid(props: Partial<IDraggableGridProps<Item>> & { data: Item[] }) {
+  let renderer!: TestRenderer.ReactTestRenderer
+  TestRenderer.act(() => {
+    renderer = TestRenderer.create(
+      <DraggableGrid numColumns={3} renderItem={renderItem} {...props} />,
+    )
+  })
+  return renderer
+}
+
+// The grid only mounts Blocks after receiving a layout event, so tests must fire one
+// to get a deterministic blockWidth/blockHeight (300 / 3 columns = 100 per block).
+function fireLayout(renderer: TestRenderer.ReactTestRenderer, width = 300, height = 300) {
+  TestRenderer.act(() => {
+    const gridView = renderer.root.findByType(ReactNative.Animated.View as any)
+    ;(gridView.props.onLayout as Function)({
+      nativeEvent: { layout: { x: 0, y: 0, width, height } },
+    })
+  })
+}
+
+function findBlockByKey(renderer: TestRenderer.ReactTestRenderer, key: string) {
+  return renderer.root.findAllByType(Block).find(block => block.props.item.key === key)!
+}
+
+const gestureState = (overrides: Partial<ReactNative.PanResponderGestureState>) =>
+  overrides as ReactNative.PanResponderGestureState
+
+describe('DraggableGrid fork fixes (UPOS-8099)', () => {
+  const items: Item[] = [
+    { key: 'a', label: 'A' },
+    { key: 'b', label: 'B' },
+    { key: 'c', label: 'C' },
+  ]
+
+  it('dispatches onItemPress with correct data after reorder and delete (fix #1)', () => {
+    const onItemPress = jest.fn()
+    const renderer = renderGrid({ data: items, onItemPress })
+    fireLayout(renderer)
+
+    // Hold onto handlers bound before the reorder/delete, mirroring a Block whose
+    // memo comparator skipped a re-render and kept its old bound closures.
+    const staleOnPressB = findBlockByKey(renderer, 'b').props.onPress
+    const staleOnPressC = findBlockByKey(renderer, 'c').props.onPress
+
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={3}
+          renderItem={renderItem}
+          onItemPress={onItemPress}
+          data={[items[1], items[2], items[0]]}
+        />,
+      )
+    })
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={3}
+          renderItem={renderItem}
+          onItemPress={onItemPress}
+          data={[items[1], items[2]]}
+        />,
+      )
+    })
+
+    staleOnPressB()
+    expect(onItemPress).toHaveBeenLastCalledWith(items[1])
+
+    staleOnPressC()
+    expect(onItemPress).toHaveBeenLastCalledWith(items[2])
+  })
+
+  it('dispatches the latest onDragItemActive after the prop changes (fix #2)', () => {
+    const onDragItemActive1 = jest.fn()
+    const onDragItemActive2 = jest.fn()
+    const renderer = renderGrid({ data: items, onDragItemActive: onDragItemActive1 })
+    fireLayout(renderer)
+
+    const onLongPress = findBlockByKey(renderer, 'a').props.onLongPress
+
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={3}
+          renderItem={renderItem}
+          onDragItemActive={onDragItemActive2}
+          data={items}
+        />,
+      )
+    })
+
+    TestRenderer.act(() => {
+      onLongPress()
+    })
+    expect(onDragItemActive2).toHaveBeenCalledWith(items[0])
+    expect(onDragItemActive1).not.toHaveBeenCalled()
+  })
+
+  it('does not starve the resort when onDragging triggers a mid-drag re-render (fix #3)', () => {
+    const onResetSort = jest.fn()
+
+    // A real consumer re-renders on every onDragging tick (e.g. showing live drag
+    // feedback) without necessarily updating `data` from onResetSort in between.
+    function Wrapper() {
+      const [, setTick] = React.useState(0)
+      return (
+        <DraggableGrid
+          numColumns={3}
+          renderItem={renderItem}
+          data={items}
+          onDragging={() => setTick(t => t + 1)}
+          onResetSort={onResetSort}
+        />
+      )
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    TestRenderer.act(() => {
+      renderer = TestRenderer.create(<Wrapper />)
+    })
+    fireLayout(renderer)
+
+    TestRenderer.act(() => {
+      findBlockByKey(renderer, 'a').props.onLongPress()
+    })
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderGrant({}, gestureState({ x0: 0, y0: 0, moveX: 0, moveY: 0 }))
+    })
+    // Move #1 is throttled out (and triggers a re-render via onDragging). Move #2
+    // should still perform the resort - without the fix the re-render resets the
+    // throttle counter and the drag never reaches the "process" frame.
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderMove({}, gestureState({ moveX: 100, moveY: 0 }))
+    })
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderMove({}, gestureState({ moveX: 100, moveY: 0 }))
+    })
+
+    expect(onResetSort).toHaveBeenCalledWith([items[1], items[0], items[2]])
+  })
+
+  it('applies the final drag position even after a single throttled move (fix #4)', () => {
+    const onDragRelease = jest.fn()
+    const renderer = renderGrid({ data: items, onDragRelease })
+    fireLayout(renderer)
+
+    TestRenderer.act(() => {
+      findBlockByKey(renderer, 'a').props.onLongPress()
+    })
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderGrant({}, gestureState({ x0: 0, y0: 0, moveX: 0, moveY: 0 }))
+    })
+    // A single move: gets throttled out and must not be discarded before release.
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderMove({}, gestureState({ moveX: 100, moveY: 0 }))
+    })
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderRelease({}, gestureState({ moveX: 100, moveY: 0 }))
+    })
+
+    expect(onDragRelease).toHaveBeenCalledWith([items[1], items[0], items[2]])
+  })
+})

@@ -76,6 +76,12 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   })
   const [activeItemIndex, setActiveItemIndex] = useState<undefined | number>()
   const isDraggingRef = useRef(false)
+  // Always dispatches the latest prop, since Block's memo comparator ignores handler-prop changes
+  // and keeps whatever bound closure it received on its last actual render.
+  const onDragItemActiveRef = useRef(props.onDragItemActive)
+  onDragItemActiveRef.current = props.onDragItemActive
+  const moveThrottleFrameRef = useRef(0)
+  const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
     if (!hadInitBlockSize) {
@@ -123,15 +129,18 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     const rowCount = Math.ceil(props.data.length / props.numColumns)
     gridHeight.setValue(rowCount * blockHeight)
   }
-  function onBlockPress(itemIndex: number) {
+  // Bound handlers are keyed by the stable item key, not by index, so reordering/removing
+  // items can't leave a Block invoking a handler for the wrong (or a stale) slot.
+  function onBlockPress(key: string | number) {
+    const itemIndex = findIndex(items, item => item.key === key)
+    if (itemIndex === -1) return
     props.onItemPress && props.onItemPress(items[itemIndex].itemData)
   }
-  const onLongPressBlock = useCallback(
-    (itemIndex: number, item: DataType) => {
-      setActiveBlock(itemIndex, item)
-    },
-    []
-  )
+  const onLongPressBlock = useCallback((key: string | number) => {
+    const itemIndex = findIndex(items, item => item.key === key)
+    if (itemIndex === -1) return
+    setActiveBlock(itemIndex, items[itemIndex].itemData)
+  }, [])
   function onStartDrag(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
     const activeItem = getActiveItem()
     if (!activeItem) return false
@@ -155,30 +164,11 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     })
     return true
   }
-  let moveThrottleFrame = 0
-
-  function onHandMove(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
-    const activeItem = getActiveItem()
-    if (!activeItem) return false
-    const { moveX:moveXOriginal, moveY } = gestureState
-    const moveX = I18nManager.isRTL ? -moveXOriginal : moveXOriginal
-    props.onDragging && props.onDragging(gestureState)
-
-    const xChokeAmount = Math.max(0, activeBlockOffset.x + moveX - (gridLayout.width - blockWidth))
-    const xMinChokeAmount = Math.min(0, activeBlockOffset.x + moveX)
-
-    const dragPosition = {
-      x: moveX - xChokeAmount - xMinChokeAmount,
-      y: moveY,
-    }
-    const originPosition = blockPositions[orderMap[activeItem.key].order]
-    const dragPositionToActivePositionDistance = getDistance(dragPosition, originPosition)
-    activeItem.currentPosition.setValue(dragPosition)
-
-    // Throttle expensive resorting/animation work to every other frame
-    moveThrottleFrame = (moveThrottleFrame + 1) % 2
-    if (moveThrottleFrame !== 0) return
-
+  function resortFromPosition(
+    activeItem: IItem<DataType>,
+    dragPosition: IPositionOffset,
+    dragPositionToActivePositionDistance: number,
+  ) {
     let closetItemIndex = activeItemIndex as number
     let closetDistance = dragPositionToActivePositionDistance
 
@@ -204,12 +194,49 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       orderMap[activeItem.key].order = closetOrder
       props.onResetSort && props.onResetSort(getSortData())
     }
+  }
+  function onHandMove(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
+    const activeItem = getActiveItem()
+    if (!activeItem) return false
+    const { moveX:moveXOriginal, moveY } = gestureState
+    const moveX = I18nManager.isRTL ? -moveXOriginal : moveXOriginal
+    props.onDragging && props.onDragging(gestureState)
+
+    const xChokeAmount = Math.max(0, activeBlockOffset.x + moveX - (gridLayout.width - blockWidth))
+    const xMinChokeAmount = Math.min(0, activeBlockOffset.x + moveX)
+
+    const dragPosition = {
+      x: moveX - xChokeAmount - xMinChokeAmount,
+      y: moveY,
+    }
+    const originPosition = blockPositions[orderMap[activeItem.key].order]
+    const dragPositionToActivePositionDistance = getDistance(dragPosition, originPosition)
+    activeItem.currentPosition.setValue(dragPosition)
+    pendingDragPositionRef.current = dragPosition
+
+    // Throttle expensive resorting/animation work to every other frame
+    moveThrottleFrameRef.current = (moveThrottleFrameRef.current + 1) % 2
+    if (moveThrottleFrameRef.current !== 0) return
+
+    resortFromPosition(activeItem, dragPosition, dragPositionToActivePositionDistance)
+    pendingDragPositionRef.current = null
     return true
   }
   function onHandRelease() {
     const activeItem = getActiveItem()
     if (!activeItem) return false
+
+    // A throttled-out move may not have been resorted yet; apply it so the released
+    // order always reflects the final visual position.
+    if (pendingDragPositionRef.current) {
+      const originPosition = blockPositions[orderMap[activeItem.key].order]
+      const distance = getDistance(pendingDragPositionRef.current, originPosition)
+      resortFromPosition(activeItem, pendingDragPositionRef.current, distance)
+      pendingDragPositionRef.current = null
+    }
+
     isDraggingRef.current = false
+    moveThrottleFrameRef.current = 0
     props.onDragRelease && props.onDragRelease(getSortData())
     setPanResponderCapture(false)
     activeItem.currentPosition.flattenOffset()
@@ -217,8 +244,9 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     setActiveItemIndex(undefined)
     return true
   }
-  function onBlockPressOut(itemIndex: number) {
-    if (activeItemIndex === itemIndex && !isDraggingRef.current) {
+  function onBlockPressOut(key: string | number) {
+    const itemIndex = findIndex(items, item => item.key === key)
+    if (itemIndex !== -1 && activeItemIndex === itemIndex && !isDraggingRef.current) {
       onHandRelease()
     }
   }
@@ -278,7 +306,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function setActiveBlock(itemIndex: number, item: DataType) {
     if (item.disabledDrag) return
 
-    props.onDragItemActive && props.onDragItemActive(item)
+    onDragItemActiveRef.current && onDragItemActiveRef.current(item)
 
     setPanResponderCapture(true)
     setActiveItemIndex(itemIndex)
@@ -398,9 +426,9 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   const itemList = items.map((item, itemIndex) => {
     return (
       <Block
-        onPress={onBlockPress.bind(null, itemIndex)}
-        onLongPress={onLongPressBlock.bind(null, itemIndex, item.itemData)}
-        onPressOut={onBlockPressOut.bind(null, itemIndex)}
+        onPress={onBlockPress.bind(null, item.key)}
+        onLongPress={onLongPressBlock.bind(null, item.key)}
+        onPressOut={onBlockPressOut.bind(null, item.key)}
         panHandlers={panResponder.panHandlers}
         style={getBlockStyle(itemIndex)}
         dragStartAnimationStyle={getDragStartAnimation(itemIndex)}

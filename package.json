@@ -30,7 +30,14 @@
     ],
     "transform": {
       "^.+\\.(js)$": "<rootDir>/node_modules/babel-jest",
-      "\\.(ts|tsx)$": "<rootDir>/node_modules/ts-jest/preprocessor.js"
+      "\\.(ts|tsx)$": "ts-jest"
+    },
+    "globals": {
+      "ts-jest": {
+        "tsConfig": {
+          "jsx": "react"
+        }
+      }
     },
     "testMatch": [
       "<rootDir>/test/**/?(*.)(spec|test).ts?(x)"
@@ -45,14 +52,16 @@
     "@types/jest": "^24.0.18",
     "@types/react": "^16.0.0",
     "@types/react-native": "*",
+    "@types/react-test-renderer": "16.9.0",
     "babel-jest": "^24.9.0",
     "jest": "^24.9.0",
     "jest-react-native": "^18.0.0",
     "pre-commit": "^1.2.2",
+    "prettier": "^1.18.2",
     "react": "^16.0.0",
     "react-native": "*",
+    "react-test-renderer": "16.12.0",
     "ts-jest": "^24.0.2",
-    "prettier": "^1.18.2",
     "typescript": "^3.8.0"
   },
   "peerDependencies": {
