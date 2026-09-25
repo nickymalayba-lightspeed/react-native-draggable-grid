@@ -166,6 +166,31 @@ describe('DraggableGrid fork fixes (UPOS-8099)', () => {
     expect(onItemPress).toHaveBeenLastCalledWith(items[2])
   })
 
+  it('dispatches the latest onItemPress after the prop changes', () => {
+    const onItemPress1 = jest.fn()
+    const onItemPress2 = jest.fn()
+    const renderer = renderGrid({ data: items, onItemPress: onItemPress1 })
+    fireLayout(renderer)
+
+    // Capture the onPress closure held by a memoized Block
+    const staleOnPressA = findBlockByKey(renderer, 'a').props.onPress
+
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={3}
+          renderItem={renderItem}
+          onItemPress={onItemPress2}
+          data={items}
+        />,
+      )
+    })
+
+    staleOnPressA()
+    expect(onItemPress1).not.toHaveBeenCalled()
+    expect(onItemPress2).toHaveBeenCalledWith(items[0])
+  })
+
   it('dispatches the latest onDragItemActive after the prop changes (fix #2)', () => {
     const onDragItemActive1 = jest.fn()
     const onDragItemActive2 = jest.fn()

@@ -76,10 +76,20 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   })
   const [activeItemIndex, setActiveItemIndex] = useState<undefined | number>()
   const isDraggingRef = useRef(false)
-  // Always dispatches the latest prop, since Block's memo comparator ignores handler-prop changes
+  // Always dispatches the latest props, since Block's memo comparator ignores handler-prop changes
   // and keeps whatever bound closure it received on its last actual render.
   const onDragItemActiveRef = useRef(props.onDragItemActive)
   onDragItemActiveRef.current = props.onDragItemActive
+  const onItemPressRef = useRef(props.onItemPress)
+  onItemPressRef.current = props.onItemPress
+  const onDragStartRef = useRef(props.onDragStart)
+  onDragStartRef.current = props.onDragStart
+  const onDraggingRef = useRef(props.onDragging)
+  onDraggingRef.current = props.onDragging
+  const onResetSortRef = useRef(props.onResetSort)
+  onResetSortRef.current = props.onResetSort
+  const onDragReleaseRef = useRef(props.onDragRelease)
+  onDragReleaseRef.current = props.onDragRelease
   const moveThrottleFrameRef = useRef(0)
   const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
 
@@ -131,10 +141,12 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   }
   // Bound handlers are keyed by the stable item key, not by index, so reordering/removing
   // items can't leave a Block invoking a handler for the wrong (or a stale) slot.
+  // Uses ref to guarantee invocation of the latest onItemPress prop even if Block memoization
+  // retained a previous closure.
   function onBlockPress(key: string | number) {
     const itemIndex = findIndex(items, item => item.key === key)
     if (itemIndex === -1) return
-    props.onItemPress && props.onItemPress(items[itemIndex].itemData)
+    onItemPressRef.current && onItemPressRef.current(items[itemIndex].itemData)
   }
   const onLongPressBlock = useCallback((key: string | number) => {
     const itemIndex = findIndex(items, item => item.key === key)
@@ -145,7 +157,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     const activeItem = getActiveItem()
     if (!activeItem) return false
     isDraggingRef.current = true
-    props.onDragStart && props.onDragStart(activeItem.itemData)
+    onDragStartRef.current && onDragStartRef.current(activeItem.itemData)
     const { x0, y0, moveX, moveY } = gestureState
     const activeOrigin = blockPositions[orderMap[activeItem.key].order]
     const x = activeOrigin.x + (I18nManager.isRTL ? x0 : -x0)
@@ -192,7 +204,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       const closetOrder = orderMap[items[closetItemIndex].key].order
       resetBlockPositionByOrder(orderMap[activeItem.key].order, closetOrder)
       orderMap[activeItem.key].order = closetOrder
-      props.onResetSort && props.onResetSort(getSortData())
+      onResetSortRef.current && onResetSortRef.current(getSortData())
     }
   }
   function onHandMove(_: GestureResponderEvent, gestureState: PanResponderGestureState) {
@@ -200,7 +212,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     if (!activeItem) return false
     const { moveX:moveXOriginal, moveY } = gestureState
     const moveX = I18nManager.isRTL ? -moveXOriginal : moveXOriginal
-    props.onDragging && props.onDragging(gestureState)
+    onDraggingRef.current && onDraggingRef.current(gestureState)
 
     const xChokeAmount = Math.max(0, activeBlockOffset.x + moveX - (gridLayout.width - blockWidth))
     const xMinChokeAmount = Math.min(0, activeBlockOffset.x + moveX)
@@ -237,7 +249,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
 
     isDraggingRef.current = false
     moveThrottleFrameRef.current = 0
-    props.onDragRelease && props.onDragRelease(getSortData())
+    onDragReleaseRef.current && onDragReleaseRef.current(getSortData())
     setPanResponderCapture(false)
     activeItem.currentPosition.flattenOffset()
     moveBlockToBlockOrderPosition(activeItem.key)
