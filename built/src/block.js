@@ -32,6 +32,13 @@ var MemoizedBlock = React.memo(Block, function (prev, next) {
         return false;
     if (!prev.renderItem && !next.renderItem && prev.children !== next.children)
         return false;
+    var prevStyle = Array.isArray(prev.style) ? prev.style[1] : prev.style;
+    var nextStyle = Array.isArray(next.style) ? next.style[1] : next.style;
+    if (prevStyle &&
+        nextStyle &&
+        (prevStyle.width !== nextStyle.width || prevStyle.height !== nextStyle.height)) {
+        return false;
+    }
     // style/onPress/onLongPress/onPressOut/panHandlers may be new references each parent render
     // but rely on mutable refs/Animated values; skipping them prevents drag cascades.
     return true;

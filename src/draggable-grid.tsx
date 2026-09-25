@@ -97,6 +97,8 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   onDragReleaseRef.current = props.onDragRelease
   const moveThrottleFrameRef = useRef(0)
   const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
+  const effectiveBlockWidth = props.itemWidth != null ? props.itemWidth : blockWidth
+  const effectiveBlockHeight = props.itemHeight != null ? props.itemHeight : (props.itemWidth || blockHeight)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
     const newBlockWidth = props.itemWidth || event.nativeEvent.layout.width / props.numColumns
@@ -133,8 +135,8 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   function initBlockPositions() {
     items.forEach((_, index) => {
       const columnOnRow = index % props.numColumns
-      const y = blockHeight * Math.floor(index / props.numColumns)
-      const x = columnOnRow * blockWidth
+      const y = effectiveBlockHeight * Math.floor(index / props.numColumns)
+      const x = columnOnRow * effectiveBlockWidth
       blockPositions[index] = { x, y }
     })
   }
@@ -143,8 +145,8 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
       return blockPositions[order]
     }
     const columnOnRow = order % props.numColumns
-    const y = blockHeight * Math.floor(order / props.numColumns)
-    const x = columnOnRow * blockWidth
+    const y = effectiveBlockHeight * Math.floor(order / props.numColumns)
+    const x = columnOnRow * effectiveBlockWidth
     return {
       x,
       y,
@@ -152,7 +154,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   }
   function resetGridHeight() {
     const rowCount = Math.ceil(props.data.length / props.numColumns)
-    gridHeight.setValue(rowCount * blockHeight)
+    gridHeight.setValue(rowCount * effectiveBlockHeight)
   }
   // Bound handlers are keyed by the stable item key, not by index, so reordering/removing
   // items can't leave a Block invoking a handler for the wrong (or a stale) slot.
@@ -356,8 +358,8 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
         alignItems: 'center',
       },
       hadInitBlockSize && {
-        width: blockWidth,
-        height: blockHeight,
+        width: effectiveBlockWidth,
+        height: effectiveBlockHeight,
         position: 'absolute',
         top: items[itemIndex].currentPosition.getLayout().top,
         left: I18nManager.isRTL && Platform.OS === 'web' ? undefined: items[itemIndex].currentPosition.getLayout().left,

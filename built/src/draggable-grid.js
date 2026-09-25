@@ -52,6 +52,8 @@ exports.DraggableGrid = function (props) {
     onDragReleaseRef.current = props.onDragRelease;
     var moveThrottleFrameRef = react_1.useRef(0);
     var pendingDragPositionRef = react_1.useRef(null);
+    var effectiveBlockWidth = props.itemWidth != null ? props.itemWidth : blockWidth;
+    var effectiveBlockHeight = props.itemHeight != null ? props.itemHeight : (props.itemWidth || blockHeight);
     var assessGridSize = function (event) {
         var newBlockWidth = props.itemWidth || event.nativeEvent.layout.width / props.numColumns;
         var newBlockHeight = props.itemHeight || newBlockWidth;
@@ -84,8 +86,8 @@ exports.DraggableGrid = function (props) {
     function initBlockPositions() {
         items.forEach(function (_, index) {
             var columnOnRow = index % props.numColumns;
-            var y = blockHeight * Math.floor(index / props.numColumns);
-            var x = columnOnRow * blockWidth;
+            var y = effectiveBlockHeight * Math.floor(index / props.numColumns);
+            var x = columnOnRow * effectiveBlockWidth;
             blockPositions[index] = { x: x, y: y };
         });
     }
@@ -94,8 +96,8 @@ exports.DraggableGrid = function (props) {
             return blockPositions[order];
         }
         var columnOnRow = order % props.numColumns;
-        var y = blockHeight * Math.floor(order / props.numColumns);
-        var x = columnOnRow * blockWidth;
+        var y = effectiveBlockHeight * Math.floor(order / props.numColumns);
+        var x = columnOnRow * effectiveBlockWidth;
         return {
             x: x,
             y: y,
@@ -103,7 +105,7 @@ exports.DraggableGrid = function (props) {
     }
     function resetGridHeight() {
         var rowCount = Math.ceil(props.data.length / props.numColumns);
-        gridHeight.setValue(rowCount * blockHeight);
+        gridHeight.setValue(rowCount * effectiveBlockHeight);
     }
     // Bound handlers are keyed by the stable item key, not by index, so reordering/removing
     // items can't leave a Block invoking a handler for the wrong (or a stale) slot.
@@ -298,8 +300,8 @@ exports.DraggableGrid = function (props) {
                 alignItems: 'center',
             },
             hadInitBlockSize && {
-                width: blockWidth,
-                height: blockHeight,
+                width: effectiveBlockWidth,
+                height: effectiveBlockHeight,
                 position: 'absolute',
                 top: items[itemIndex].currentPosition.getLayout().top,
                 left: react_native_1.I18nManager.isRTL && react_native_1.Platform.OS === 'web' ? undefined : items[itemIndex].currentPosition.getLayout().left,
