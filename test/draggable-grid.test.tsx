@@ -2,38 +2,38 @@ jest.mock('react-native', () => {
   const panResponderConfigs: any[] = []
 
   class AnimatedValue {
-    private value: number
+    _value: number
     constructor(value: number) {
-      this.value = value
+      this._value = value
     }
     setValue(value: number) {
-      this.value = value
+      this._value = value
     }
   }
 
   class AnimatedValueXY {
-    x: number
-    y: number
+    x: AnimatedValue
+    y: AnimatedValue
     private offset: { x: number; y: number }
     constructor(initial: { x: number; y: number } = { x: 0, y: 0 }) {
-      this.x = initial.x
-      this.y = initial.y
+      this.x = new AnimatedValue(initial.x)
+      this.y = new AnimatedValue(initial.y)
       this.offset = { x: 0, y: 0 }
     }
     setValue(value: { x: number; y: number }) {
-      this.x = value.x
-      this.y = value.y
+      this.x.setValue(value.x)
+      this.y.setValue(value.y)
     }
     setOffset(offset: { x: number; y: number }) {
       this.offset = offset
     }
     flattenOffset() {
-      this.x += this.offset.x
-      this.y += this.offset.y
+      this.x.setValue(this.x._value + this.offset.x)
+      this.y.setValue(this.y._value + this.offset.y)
       this.offset = { x: 0, y: 0 }
     }
     getLayout() {
-      return { left: this.x + this.offset.x, top: this.y + this.offset.y }
+      return { left: this.x, top: this.y }
     }
   }
 
@@ -75,7 +75,7 @@ import { Block } from '../src/block'
 
 interface Item {
   key: string
-  label: string
+  label?: string
   disabledDrag?: boolean
   disabledReSorted?: boolean
 }
@@ -90,7 +90,7 @@ function latestPanResponderConfig() {
 }
 
 function renderItem(item: Item) {
-  return <>{item.label}</>
+  return <>{item.label ?? item.key}</>
 }
 
 function renderGrid(props: Partial<IDraggableGridProps<Item>> & { data: Item[] }) {
@@ -105,11 +105,19 @@ function renderGrid(props: Partial<IDraggableGridProps<Item>> & { data: Item[] }
 
 // The grid only mounts Blocks after receiving a layout event, so tests must fire one
 // to get a deterministic blockWidth/blockHeight (300 / 3 columns = 100 per block).
-function fireLayout(renderer: TestRenderer.ReactTestRenderer, width = 300, height = 300) {
+function fireLayout(
+  renderer: TestRenderer.ReactTestRenderer,
+  widthOrLayout: number | { width: number; height: number } = 300,
+  height = 300,
+) {
+  const layout =
+    typeof widthOrLayout === 'object'
+      ? { x: 0, y: 0, width: widthOrLayout.width, height: widthOrLayout.height }
+      : { x: 0, y: 0, width: widthOrLayout, height }
   TestRenderer.act(() => {
     const gridView = renderer.root.findByType(ReactNative.Animated.View as any)
     ;(gridView.props.onLayout as Function)({
-      nativeEvent: { layout: { x: 0, y: 0, width, height } },
+      nativeEvent: { layout },
     })
   })
 }
@@ -280,5 +288,18 @@ describe('DraggableGrid fork fixes (UPOS-8099)', () => {
     })
 
     expect(onDragRelease).toHaveBeenCalledWith([items[1], items[0], items[2]])
+  })
+
+  it('recalculates block sizes and repositions items when grid width changes (portrait / resize)', () => {
+    const items = [{ key: '1' }, { key: '2' }, { key: '3' }]
+    const renderer = renderGrid({ data: items, numColumns: 3 })
+
+    // 1. Initial layout (landscape, width 600 -> blockWidth = 200)
+    fireLayout(renderer, { width: 600, height: 400 })
+    expect(findBlockByKey(renderer, '2').props.style[1].left._value).toBe(200)
+
+    // 2. Resize event (portrait/multitask, width 300 -> blockWidth = 100)
+    fireLayout(renderer, { width: 300, height: 600 })
+    expect(findBlockByKey(renderer, '2').props.style[1].left._value).toBe(100)
   })
 })
