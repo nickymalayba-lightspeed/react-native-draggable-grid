@@ -14,6 +14,7 @@
     "url": "https://github.com/SHISME/react-native-draggable-grid"
   },
   "scripts": {
+    "build": "yarn built",
     "built": "rm -rf built && tsc",
     "watch": "tsc -w --outDir demo/built",
     "test": "jest"
