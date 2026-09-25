@@ -379,13 +379,24 @@ exports.DraggableGrid = function (props) {
         startDragStartAnimation();
     }, [activeItemIndex]);
     react_1.useEffect(function () {
+        if (!hadInitBlockSize || activeItemIndex !== undefined)
+            return;
+        var expectedBlockWidth = gridLayout.width / props.numColumns;
+        var expectedBlockHeight = props.itemHeight || expectedBlockWidth;
+        if (expectedBlockWidth !== blockWidth || expectedBlockHeight !== blockHeight) {
+            setBlockWidth(expectedBlockWidth);
+            setBlockHeight(expectedBlockHeight);
+            setGridLayout(function (prev) { return (__assign({}, prev)); });
+        }
+    }, [props.itemHeight, props.numColumns, hadInitBlockSize, activeItemIndex, blockHeight, blockWidth, gridLayout.width]);
+    react_1.useEffect(function () {
         if (hadInitBlockSize) {
             initBlockPositions();
             items.forEach(function (item) {
                 item.currentPosition.setValue(blockPositions[orderMap[item.key].order]);
             });
         }
-    }, [gridLayout]);
+    }, [gridLayout, blockWidth, blockHeight, props.numColumns]);
     react_1.useEffect(function () {
         resetGridHeight();
     });

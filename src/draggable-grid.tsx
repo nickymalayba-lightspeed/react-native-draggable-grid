@@ -435,13 +435,24 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     startDragStartAnimation()
   }, [activeItemIndex])
   useEffect(() => {
+    if (!hadInitBlockSize || activeItemIndex !== undefined) return
+
+    const expectedBlockWidth = gridLayout.width / props.numColumns
+    const expectedBlockHeight = props.itemHeight || expectedBlockWidth
+    if (expectedBlockWidth !== blockWidth || expectedBlockHeight !== blockHeight) {
+      setBlockWidth(expectedBlockWidth)
+      setBlockHeight(expectedBlockHeight)
+      setGridLayout(prev => ({ ...prev }))
+    }
+  }, [props.itemHeight, props.numColumns, hadInitBlockSize, activeItemIndex, blockHeight, blockWidth, gridLayout.width])
+  useEffect(() => {
     if (hadInitBlockSize) {
       initBlockPositions()
       items.forEach(item => {
         item.currentPosition.setValue(blockPositions[orderMap[item.key].order])
       })
     }
-  }, [gridLayout])
+  }, [gridLayout, blockWidth, blockHeight, props.numColumns])
   useEffect(() => {
     resetGridHeight()
   })

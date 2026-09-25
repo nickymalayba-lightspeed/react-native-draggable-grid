@@ -221,5 +221,38 @@ describe('DraggableGrid fork fixes (UPOS-8099)', function () {
         fireLayout(renderer, { width: 300, height: 600 });
         expect(findBlockByKey(renderer, '2').props.style[1].left._value).toBe(100);
     });
+    it('recalculates block heights and repositions items when itemHeight prop changes without onLayout', function () {
+        var items = [{ key: '1' }, { key: '2' }, { key: '3' }, { key: '4' }];
+        var renderer = renderGrid({ data: items, numColumns: 2, itemHeight: 100 });
+        // 1. Initial layout (width 400, 2 columns -> blockWidth = 200, itemHeight = 100)
+        fireLayout(renderer, { width: 400, height: 200 });
+        // Item '3' is in row 1, col 0 -> top = 100, height = 100
+        expect(findBlockByKey(renderer, '3').props.style[1].height).toBe(100);
+        expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(100);
+        // 2. Update itemHeight prop from 100 to 160 (simulating orientation change row height recalculation)
+        TestRenderer.act(function () {
+            renderer.update(<draggable_grid_1.DraggableGrid numColumns={2} itemHeight={160} renderItem={renderItem} data={items}/>);
+        });
+        // Height and top position should now be updated to 160
+        expect(findBlockByKey(renderer, '3').props.style[1].height).toBe(160);
+        expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(160);
+    });
+    it('recalculates block positions when numColumns prop changes without onLayout', function () {
+        var items = [{ key: '1' }, { key: '2' }, { key: '3' }];
+        var renderer = renderGrid({ data: items, numColumns: 3 });
+        fireLayout(renderer, { width: 300, height: 300 });
+        // With 3 columns (width 300 -> blockWidth = 100):
+        // item 3 (index 2) is at col 2, row 0 -> left = 200, top = 0
+        expect(findBlockByKey(renderer, '3').props.style[1].left._value).toBe(200);
+        expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(0);
+        // Update numColumns to 1
+        TestRenderer.act(function () {
+            renderer.update(<draggable_grid_1.DraggableGrid numColumns={1} renderItem={renderItem} data={items}/>);
+        });
+        // With 1 column (width 300 -> blockWidth = 300, blockHeight = 300):
+        // item 3 (index 2) is now at col 0, row 2 -> left = 0, top = 600
+        expect(findBlockByKey(renderer, '3').props.style[1].left._value).toBe(0);
+        expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(600);
+    });
 });
 //# sourceMappingURL=draggable-grid.test.js.map
