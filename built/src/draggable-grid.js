@@ -53,13 +53,19 @@ exports.DraggableGrid = function (props) {
     var moveThrottleFrameRef = react_1.useRef(0);
     var pendingDragPositionRef = react_1.useRef(null);
     var assessGridSize = function (event) {
+        var newBlockWidth = event.nativeEvent.layout.width / props.numColumns;
+        var newBlockHeight = props.itemHeight || newBlockWidth;
         if (!hadInitBlockSize) {
-            var blockWidth_1 = event.nativeEvent.layout.width / props.numColumns;
-            var blockHeight_1 = props.itemHeight || blockWidth_1;
-            setBlockWidth(blockWidth_1);
-            setBlockHeight(blockHeight_1);
+            setBlockWidth(newBlockWidth);
+            setBlockHeight(newBlockHeight);
             setGridLayout(event.nativeEvent.layout);
             setHadInitBlockSize(true);
+        }
+        else if (activeItemIndex === undefined &&
+            (newBlockWidth !== blockWidth || newBlockHeight !== blockHeight)) {
+            setBlockWidth(newBlockWidth);
+            setBlockHeight(newBlockHeight);
+            setGridLayout(event.nativeEvent.layout);
         }
     };
     var _f = react_1.useState(false), panResponderCapture = _f[0], setPanResponderCapture = _f[1];
@@ -77,7 +83,10 @@ exports.DraggableGrid = function (props) {
     });
     function initBlockPositions() {
         items.forEach(function (_, index) {
-            blockPositions[index] = getBlockPositionByOrder(index);
+            var columnOnRow = index % props.numColumns;
+            var y = blockHeight * Math.floor(index / props.numColumns);
+            var x = columnOnRow * blockWidth;
+            blockPositions[index] = { x: x, y: y };
         });
     }
     function getBlockPositionByOrder(order) {
@@ -372,6 +381,9 @@ exports.DraggableGrid = function (props) {
     react_1.useEffect(function () {
         if (hadInitBlockSize) {
             initBlockPositions();
+            items.forEach(function (item) {
+                item.currentPosition.setValue(blockPositions[orderMap[item.key].order]);
+            });
         }
     }, [gridLayout]);
     react_1.useEffect(function () {
