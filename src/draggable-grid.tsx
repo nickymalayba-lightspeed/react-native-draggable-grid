@@ -30,6 +30,11 @@ export interface IDraggableGridProps<DataType extends IBaseItemType> {
   renderItem: (item: DataType, order: number) => React.ReactElement<any>
   style?: ViewStyle
   itemHeight?: number
+  // Lets a consumer that already computes its own tile width (e.g. from window
+  // dimensions) supply it directly, bypassing the native onLayout measurement
+  // for width entirely and avoiding any mismatch between an assumed width and
+  // the grid's actually-measured container width.
+  itemWidth?: number
   dragStartAnimation?: StyleProp<any>
   onItemPress?: (item: DataType) => void
   onDragItemActive?: (item: DataType) => void
@@ -94,7 +99,7 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
-    const newBlockWidth = event.nativeEvent.layout.width / props.numColumns
+    const newBlockWidth = props.itemWidth || event.nativeEvent.layout.width / props.numColumns
     const newBlockHeight = props.itemHeight || newBlockWidth
     if (!hadInitBlockSize) {
       setBlockWidth(newBlockWidth)
@@ -437,14 +442,33 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   useEffect(() => {
     if (!hadInitBlockSize || activeItemIndex !== undefined) return
 
-    const expectedBlockWidth = gridLayout.width / props.numColumns
-    const expectedBlockHeight = props.itemHeight || expectedBlockWidth
-    if (expectedBlockWidth !== blockWidth || expectedBlockHeight !== blockHeight) {
-      setBlockWidth(expectedBlockWidth)
+    // itemHeight/itemWidth are independent, JS-computed props (e.g. recalculated
+    // on orientation change). Falling back to gridLayout.width here would race a
+    // concurrent native onLayout resize, since gridLayout.width can still be
+    // stale (pre-resize) for one or more renders after the props have already
+    // updated - producing a transient blockWidth/blockHeight mismatch and
+    // mispositioned tiles. Reading the props directly avoids that race; only the
+    // fallback for an unset prop needs gridLayout.width.
+    const expectedBlockWidth =
+      props.itemWidth != null ? props.itemWidth : gridLayout.width / props.numColumns
+    const expectedBlockHeight = props.itemHeight != null ? props.itemHeight : expectedBlockWidth
+    const widthChanged = expectedBlockWidth !== blockWidth
+    const heightChanged = expectedBlockHeight !== blockHeight
+    if (widthChanged || heightChanged) {
+      if (widthChanged) setBlockWidth(expectedBlockWidth)
       setBlockHeight(expectedBlockHeight)
       setGridLayout(prev => ({ ...prev }))
     }
-  }, [props.itemHeight, props.numColumns, hadInitBlockSize, activeItemIndex, blockHeight, blockWidth, gridLayout.width])
+  }, [
+    props.itemHeight,
+    props.itemWidth,
+    props.numColumns,
+    hadInitBlockSize,
+    activeItemIndex,
+    blockHeight,
+    blockWidth,
+    gridLayout.width,
+  ])
   useEffect(() => {
     if (hadInitBlockSize) {
       initBlockPositions()
