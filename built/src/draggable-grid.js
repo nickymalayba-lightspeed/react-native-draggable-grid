@@ -53,7 +53,7 @@ exports.DraggableGrid = function (props) {
     var moveThrottleFrameRef = react_1.useRef(0);
     var pendingDragPositionRef = react_1.useRef(null);
     var assessGridSize = function (event) {
-        var newBlockWidth = event.nativeEvent.layout.width / props.numColumns;
+        var newBlockWidth = props.itemWidth || event.nativeEvent.layout.width / props.numColumns;
         var newBlockHeight = props.itemHeight || newBlockWidth;
         if (!hadInitBlockSize) {
             setBlockWidth(newBlockWidth);
@@ -381,14 +381,33 @@ exports.DraggableGrid = function (props) {
     react_1.useEffect(function () {
         if (!hadInitBlockSize || activeItemIndex !== undefined)
             return;
-        var expectedBlockWidth = gridLayout.width / props.numColumns;
-        var expectedBlockHeight = props.itemHeight || expectedBlockWidth;
-        if (expectedBlockWidth !== blockWidth || expectedBlockHeight !== blockHeight) {
-            setBlockWidth(expectedBlockWidth);
+        // itemHeight/itemWidth are independent, JS-computed props (e.g. recalculated
+        // on orientation change). Falling back to gridLayout.width here would race a
+        // concurrent native onLayout resize, since gridLayout.width can still be
+        // stale (pre-resize) for one or more renders after the props have already
+        // updated - producing a transient blockWidth/blockHeight mismatch and
+        // mispositioned tiles. Reading the props directly avoids that race; only the
+        // fallback for an unset prop needs gridLayout.width.
+        var expectedBlockWidth = props.itemWidth != null ? props.itemWidth : gridLayout.width / props.numColumns;
+        var expectedBlockHeight = props.itemHeight != null ? props.itemHeight : expectedBlockWidth;
+        var widthChanged = expectedBlockWidth !== blockWidth;
+        var heightChanged = expectedBlockHeight !== blockHeight;
+        if (widthChanged || heightChanged) {
+            if (widthChanged)
+                setBlockWidth(expectedBlockWidth);
             setBlockHeight(expectedBlockHeight);
             setGridLayout(function (prev) { return (__assign({}, prev)); });
         }
-    }, [props.itemHeight, props.numColumns, hadInitBlockSize, activeItemIndex, blockHeight, blockWidth, gridLayout.width]);
+    }, [
+        props.itemHeight,
+        props.itemWidth,
+        props.numColumns,
+        hadInitBlockSize,
+        activeItemIndex,
+        blockHeight,
+        blockWidth,
+        gridLayout.width,
+    ]);
     react_1.useEffect(function () {
         if (hadInitBlockSize) {
             initBlockPositions();

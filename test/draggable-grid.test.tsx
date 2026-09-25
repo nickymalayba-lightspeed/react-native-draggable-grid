@@ -356,4 +356,78 @@ describe('DraggableGrid fork fixes (UPOS-8099)', () => {
     expect(findBlockByKey(renderer, '3').props.style[1].left._value).toBe(0)
     expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(600)
   })
+
+  it('does not mispositon tiles when itemHeight updates before the native onLayout for a concurrent width resize arrives (orientation race)', () => {
+    const items = [{ key: '1' }, { key: '2' }, { key: '3' }, { key: '4' }]
+    const renderer = renderGrid({ data: items, numColumns: 2, itemHeight: 100 })
+
+    // 1. Initial layout (landscape, width 600 -> blockWidth = 300, itemHeight = 100)
+    fireLayout(renderer, { width: 600, height: 200 })
+    expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(100)
+
+    // 2. Orientation change begins: the JS-driven itemHeight prop updates first,
+    // BEFORE the native onLayout for the new (narrower) width is delivered -
+    // simulating the real device rotation race.
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={2}
+          itemHeight={160}
+          renderItem={renderItem}
+          data={items}
+        />,
+      )
+    })
+
+    // Height must already reflect the new itemHeight, and width must remain
+    // untouched by the stale gridLayout.width (still 600 at this point).
+    expect(findBlockByKey(renderer, '3').props.style[1].height).toBe(160)
+    expect(findBlockByKey(renderer, '3').props.style[1].width).toBe(300)
+    expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(160)
+
+    // 3. The native onLayout for the rotated (narrower) width finally arrives.
+    fireLayout(renderer, { width: 300, height: 400 })
+
+    // Final state must reflect both the new width and height correctly.
+    expect(findBlockByKey(renderer, '3').props.style[1].width).toBe(150)
+    expect(findBlockByKey(renderer, '3').props.style[1].height).toBe(160)
+    expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(160)
+    expect(findBlockByKey(renderer, '3').props.style[1].left._value).toBe(0)
+  })
+
+  it('honors an explicit itemWidth prop and repositions immediately without waiting for onLayout (avoids assumed-vs-measured width mismatches)', () => {
+    const items = [{ key: '1' }, { key: '2' }, { key: '3' }, { key: '4' }]
+    const renderer = renderGrid({
+      data: items,
+      numColumns: 2,
+      itemWidth: 200,
+      itemHeight: 100,
+    })
+
+    // The native container is wider than itemWidth*numColumns (e.g. it includes
+    // extra padding the consumer already accounted for in its own itemWidth calc).
+    fireLayout(renderer, { width: 500, height: 200 })
+    expect(findBlockByKey(renderer, '3').props.style[1].width).toBe(200)
+    expect(findBlockByKey(renderer, '3').props.style[1].left._value).toBe(0)
+
+    // Orientation change: consumer recomputes both itemWidth and itemHeight itself,
+    // independent of any native re-measurement.
+    TestRenderer.act(() => {
+      renderer.update(
+        <DraggableGrid
+          numColumns={2}
+          itemWidth={120}
+          itemHeight={160}
+          renderItem={renderItem}
+          data={items}
+        />,
+      )
+    })
+
+    // Should update immediately from the props, without any onLayout event.
+    expect(findBlockByKey(renderer, '3').props.style[1].width).toBe(120)
+    expect(findBlockByKey(renderer, '3').props.style[1].height).toBe(160)
+    expect(findBlockByKey(renderer, '3').props.style[1].top._value).toBe(160)
+    expect(findBlockByKey(renderer, '4').props.style[1].left._value).toBe(120)
+  })
 })
