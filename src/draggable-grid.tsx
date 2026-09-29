@@ -94,13 +94,20 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
+    const newBlockWidth = event.nativeEvent.layout.width / props.numColumns
+    const newBlockHeight = props.itemHeight || newBlockWidth
     if (!hadInitBlockSize) {
-      let blockWidth = event.nativeEvent.layout.width / props.numColumns
-      let blockHeight = props.itemHeight || blockWidth
-      setBlockWidth(blockWidth)
-      setBlockHeight(blockHeight)
+      setBlockWidth(newBlockWidth)
+      setBlockHeight(newBlockHeight)
       setGridLayout(event.nativeEvent.layout)
       setHadInitBlockSize(true)
+    } else if (
+      activeItemIndex === undefined &&
+      (newBlockWidth !== blockWidth || newBlockHeight !== blockHeight)
+    ) {
+      setBlockWidth(newBlockWidth)
+      setBlockHeight(newBlockHeight)
+      setGridLayout(event.nativeEvent.layout)
     }
   }
   const [panResponderCapture, setPanResponderCapture] = useState(false)
@@ -120,7 +127,10 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
 
   function initBlockPositions() {
     items.forEach((_, index) => {
-      blockPositions[index] = getBlockPositionByOrder(index)
+      const columnOnRow = index % props.numColumns
+      const y = blockHeight * Math.floor(index / props.numColumns)
+      const x = columnOnRow * blockWidth
+      blockPositions[index] = { x, y }
     })
   }
   function getBlockPositionByOrder(order: number) {
@@ -427,6 +437,9 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   useEffect(() => {
     if (hadInitBlockSize) {
       initBlockPositions()
+      items.forEach(item => {
+        item.currentPosition.setValue(blockPositions[orderMap[item.key].order])
+      })
     }
   }, [gridLayout])
   useEffect(() => {
