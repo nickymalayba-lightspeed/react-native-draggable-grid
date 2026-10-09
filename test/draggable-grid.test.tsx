@@ -303,3 +303,141 @@ describe('DraggableGrid fork fixes (UPOS-8099)', () => {
     expect(findBlockByKey(renderer, '2').props.style[1].left._value).toBe(100)
   })
 })
+
+describe('DraggableGrid orientation / resize (UPOS-8228)', () => {
+  const items: Item[] = [{ key: '1' }, { key: '2' }, { key: '3' }]
+  const baseProps = { data: items, numColumns: 2, renderItem }
+
+  function flattenStyle(style: any): any {
+    if (Array.isArray(style)) return style.reduce((acc, s) => ({ ...acc, ...flattenStyle(s) }), {})
+    return style || {}
+  }
+  const valueOf = (v: any) => (v && typeof v === 'object' && '_value' in v ? v._value : v)
+
+  // Reads the Block's committed host view, so a memoized Block that skipped a re-render
+  // reports the stale size it actually rendered with.
+  function committedBlockStyle(renderer: TestRenderer.ReactTestRenderer, key: string) {
+    const host = findBlockByKey(renderer, key).findAllByType('AnimatedView' as any)[0]
+    const style = flattenStyle(host.props.style)
+    return {
+      width: valueOf(style.width),
+      height: valueOf(style.height),
+      left: valueOf(style.left),
+      top: valueOf(style.top),
+    }
+  }
+
+  function update(
+    renderer: TestRenderer.ReactTestRenderer,
+    props: Partial<IDraggableGridProps<Item>> = {},
+  ) {
+    TestRenderer.act(() => {
+      renderer.update(<DraggableGrid {...baseProps} {...props} />)
+    })
+  }
+
+  function expectGrid(
+    renderer: TestRenderer.ReactTestRenderer,
+    width: number,
+    height: number,
+  ) {
+    expect(committedBlockStyle(renderer, '1')).toEqual({ width, height, left: 0, top: 0 })
+    expect(committedBlockStyle(renderer, '2')).toEqual({ width, height, left: width, top: 0 })
+    expect(committedBlockStyle(renderer, '3')).toEqual({ width, height, left: 0, top: height })
+  }
+
+  function renderLandscape(props: Partial<IDraggableGridProps<Item>> = {}) {
+    const renderer = renderGrid({ ...baseProps, itemHeight: 300, ...props })
+    fireLayout(renderer, { width: 1000, height: 800 })
+    expectGrid(renderer, 500, 300)
+    return renderer
+  }
+
+  it('applies new size when onLayout arrives before new props', () => {
+    const renderer = renderLandscape()
+    fireLayout(renderer, { width: 640, height: 1000 })
+    update(renderer, { itemHeight: 260 })
+    expectGrid(renderer, 320, 260)
+  })
+
+  it('applies new size when new props arrive before onLayout', () => {
+    const renderer = renderLandscape()
+    update(renderer, { itemHeight: 260 })
+    fireLayout(renderer, { width: 640, height: 1000 })
+    expectGrid(renderer, 320, 260)
+  })
+
+  it('applies an itemHeight change without a width change', () => {
+    const renderer = renderLandscape()
+    update(renderer, { itemHeight: 260 })
+    expectGrid(renderer, 500, 260)
+  })
+
+  it('handles rotate landscape -> portrait -> landscape', () => {
+    const renderer = renderLandscape()
+    update(renderer, { itemHeight: 260 })
+    fireLayout(renderer, { width: 640, height: 1000 })
+    expectGrid(renderer, 320, 260)
+
+    fireLayout(renderer, { width: 1000, height: 800 })
+    update(renderer, { itemHeight: 300 })
+    expectGrid(renderer, 500, 300)
+  })
+
+  function startDrag(renderer: TestRenderer.ReactTestRenderer, key: string) {
+    TestRenderer.act(() => {
+      findBlockByKey(renderer, key).props.onLongPress()
+    })
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderGrant(
+        {},
+        gestureState({ x0: 0, y0: 0, moveX: 0, moveY: 0 }),
+      )
+    })
+  }
+  function releaseDrag() {
+    TestRenderer.act(() => {
+      latestPanResponderConfig().onPanResponderRelease({}, gestureState({ moveX: 0, moveY: 0 }))
+    })
+  }
+
+  it('defers a layout change during a drag and applies it on release', () => {
+    const renderer = renderLandscape()
+    startDrag(renderer, '1')
+
+    fireLayout(renderer, { width: 640, height: 1000 })
+    expect(committedBlockStyle(renderer, '2')).toEqual({
+      width: 500,
+      height: 300,
+      left: 500,
+      top: 0,
+    })
+
+    releaseDrag()
+    expectGrid(renderer, 320, 300)
+  })
+
+  it('re-positions blocks on release when itemHeight changed during a drag', () => {
+    const renderer = renderLandscape()
+    startDrag(renderer, '1')
+    update(renderer, { itemHeight: 260 })
+    expect(committedBlockStyle(renderer, '3').top).toBe(300)
+
+    releaseDrag()
+    expectGrid(renderer, 500, 260)
+  })
+
+  it('does not re-render non-dragged blocks on a same-size parent re-render while dragging', () => {
+    const renderCalls: string[] = []
+    const countingRenderItem = (item: Item) => {
+      renderCalls.push(item.key)
+      return <>{item.key}</>
+    }
+    const renderer = renderLandscape({ renderItem: countingRenderItem })
+    startDrag(renderer, '1')
+
+    renderCalls.length = 0
+    update(renderer, { itemHeight: 300, renderItem: countingRenderItem })
+    expect(renderCalls.filter(key => key !== '1')).toEqual([])
+  })
+})

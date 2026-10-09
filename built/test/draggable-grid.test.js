@@ -1,4 +1,15 @@
 "use strict";
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 jest.mock('react-native', function () {
     var panResponderConfigs = [];
@@ -220,6 +231,118 @@ describe('DraggableGrid fork fixes (UPOS-8099)', function () {
         // 2. Resize event (portrait/multitask, width 300 -> blockWidth = 100)
         fireLayout(renderer, { width: 300, height: 600 });
         expect(findBlockByKey(renderer, '2').props.style[1].left._value).toBe(100);
+    });
+});
+describe('DraggableGrid orientation / resize (UPOS-8228)', function () {
+    var items = [{ key: '1' }, { key: '2' }, { key: '3' }];
+    var baseProps = { data: items, numColumns: 2, renderItem: renderItem };
+    function flattenStyle(style) {
+        if (Array.isArray(style))
+            return style.reduce(function (acc, s) { return (__assign(__assign({}, acc), flattenStyle(s))); }, {});
+        return style || {};
+    }
+    var valueOf = function (v) { return (v && typeof v === 'object' && '_value' in v ? v._value : v); };
+    // Reads the Block's committed host view, so a memoized Block that skipped a re-render
+    // reports the stale size it actually rendered with.
+    function committedBlockStyle(renderer, key) {
+        var host = findBlockByKey(renderer, key).findAllByType('AnimatedView')[0];
+        var style = flattenStyle(host.props.style);
+        return {
+            width: valueOf(style.width),
+            height: valueOf(style.height),
+            left: valueOf(style.left),
+            top: valueOf(style.top),
+        };
+    }
+    function update(renderer, props) {
+        if (props === void 0) { props = {}; }
+        TestRenderer.act(function () {
+            renderer.update(<draggable_grid_1.DraggableGrid {...baseProps} {...props}/>);
+        });
+    }
+    function expectGrid(renderer, width, height) {
+        expect(committedBlockStyle(renderer, '1')).toEqual({ width: width, height: height, left: 0, top: 0 });
+        expect(committedBlockStyle(renderer, '2')).toEqual({ width: width, height: height, left: width, top: 0 });
+        expect(committedBlockStyle(renderer, '3')).toEqual({ width: width, height: height, left: 0, top: height });
+    }
+    function renderLandscape(props) {
+        if (props === void 0) { props = {}; }
+        var renderer = renderGrid(__assign(__assign(__assign({}, baseProps), { itemHeight: 300 }), props));
+        fireLayout(renderer, { width: 1000, height: 800 });
+        expectGrid(renderer, 500, 300);
+        return renderer;
+    }
+    it('applies new size when onLayout arrives before new props', function () {
+        var renderer = renderLandscape();
+        fireLayout(renderer, { width: 640, height: 1000 });
+        update(renderer, { itemHeight: 260 });
+        expectGrid(renderer, 320, 260);
+    });
+    it('applies new size when new props arrive before onLayout', function () {
+        var renderer = renderLandscape();
+        update(renderer, { itemHeight: 260 });
+        fireLayout(renderer, { width: 640, height: 1000 });
+        expectGrid(renderer, 320, 260);
+    });
+    it('applies an itemHeight change without a width change', function () {
+        var renderer = renderLandscape();
+        update(renderer, { itemHeight: 260 });
+        expectGrid(renderer, 500, 260);
+    });
+    it('handles rotate landscape -> portrait -> landscape', function () {
+        var renderer = renderLandscape();
+        update(renderer, { itemHeight: 260 });
+        fireLayout(renderer, { width: 640, height: 1000 });
+        expectGrid(renderer, 320, 260);
+        fireLayout(renderer, { width: 1000, height: 800 });
+        update(renderer, { itemHeight: 300 });
+        expectGrid(renderer, 500, 300);
+    });
+    function startDrag(renderer, key) {
+        TestRenderer.act(function () {
+            findBlockByKey(renderer, key).props.onLongPress();
+        });
+        TestRenderer.act(function () {
+            latestPanResponderConfig().onPanResponderGrant({}, gestureState({ x0: 0, y0: 0, moveX: 0, moveY: 0 }));
+        });
+    }
+    function releaseDrag() {
+        TestRenderer.act(function () {
+            latestPanResponderConfig().onPanResponderRelease({}, gestureState({ moveX: 0, moveY: 0 }));
+        });
+    }
+    it('defers a layout change during a drag and applies it on release', function () {
+        var renderer = renderLandscape();
+        startDrag(renderer, '1');
+        fireLayout(renderer, { width: 640, height: 1000 });
+        expect(committedBlockStyle(renderer, '2')).toEqual({
+            width: 500,
+            height: 300,
+            left: 500,
+            top: 0,
+        });
+        releaseDrag();
+        expectGrid(renderer, 320, 300);
+    });
+    it('re-positions blocks on release when itemHeight changed during a drag', function () {
+        var renderer = renderLandscape();
+        startDrag(renderer, '1');
+        update(renderer, { itemHeight: 260 });
+        expect(committedBlockStyle(renderer, '3').top).toBe(300);
+        releaseDrag();
+        expectGrid(renderer, 500, 260);
+    });
+    it('does not re-render non-dragged blocks on a same-size parent re-render while dragging', function () {
+        var renderCalls = [];
+        var countingRenderItem = function (item) {
+            renderCalls.push(item.key);
+            return <>{item.key}</>;
+        };
+        var renderer = renderLandscape({ renderItem: countingRenderItem });
+        startDrag(renderer, '1');
+        renderCalls.length = 0;
+        update(renderer, { itemHeight: 300, renderItem: countingRenderItem });
+        expect(renderCalls.filter(function (key) { return key !== '1'; })).toEqual([]);
     });
 });
 //# sourceMappingURL=draggable-grid.test.js.map

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useReducer } from 'react'
 import {
   PanResponder,
   Animated,
@@ -63,8 +63,6 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   const [orderMap] = useState<IMap<IOrderMapItem>>({})
   const [itemMap] = useState<IMap<DataType>>({})
   const [items] = useState<IItem<DataType>[]>([])
-  const [blockHeight, setBlockHeight] = useState(0)
-  const [blockWidth, setBlockWidth] = useState(0)
   const [gridHeight] = useState<Animated.Value>(new Animated.Value(0))
   const [hadInitBlockSize, setHadInitBlockSize] = useState(false)
   const [dragStartAnimatedValue] = useState(new Animated.Value(1))
@@ -75,6 +73,15 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     height: 0,
   })
   const [activeItemIndex, setActiveItemIndex] = useState<undefined | number>()
+  // Derived every render so itemHeight/numColumns prop changes apply even when they arrive
+  // before or after onLayout (iOS rotation does not guarantee ordering).
+  const blockWidth = gridLayout.width / props.numColumns
+  const blockHeight = props.itemHeight || blockWidth
+  // Layout/size changes that arrive mid-drag are deferred until release so the drag
+  // isn't disrupted, then flushed via pendingLayoutRef / the reinit counter.
+  const pendingLayoutRef = useRef<typeof gridLayout | null>(null)
+  const positionsStaleRef = useRef(false)
+  const [positionsReinitCount, requestPositionsReinit] = useReducer((n: number) => n + 1, 0)
   const isDraggingRef = useRef(false)
   // Always dispatches the latest props, since Block's memo comparator ignores handler-prop changes
   // and keeps whatever bound closure it received on its last actual render.
@@ -94,21 +101,21 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
   const pendingDragPositionRef = useRef<IPositionOffset | null>(null)
 
   const assessGridSize = (event: IOnLayoutEvent) => {
-    const newBlockWidth = event.nativeEvent.layout.width / props.numColumns
-    const newBlockHeight = props.itemHeight || newBlockWidth
+    const layout = event.nativeEvent.layout
     if (!hadInitBlockSize) {
-      setBlockWidth(newBlockWidth)
-      setBlockHeight(newBlockHeight)
-      setGridLayout(event.nativeEvent.layout)
+      setGridLayout(layout)
       setHadInitBlockSize(true)
-    } else if (
-      activeItemIndex === undefined &&
-      (newBlockWidth !== blockWidth || newBlockHeight !== blockHeight)
-    ) {
-      setBlockWidth(newBlockWidth)
-      setBlockHeight(newBlockHeight)
-      setGridLayout(event.nativeEvent.layout)
+      return
     }
+    if (layout.width === gridLayout.width) {
+      pendingLayoutRef.current = null
+      return
+    }
+    if (isDraggingRef.current || activeItemIndex !== undefined) {
+      pendingLayoutRef.current = layout
+      return
+    }
+    setGridLayout(layout)
   }
   const [panResponderCapture, setPanResponderCapture] = useState(false)
 
@@ -264,6 +271,14 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     activeItem.currentPosition.flattenOffset()
     moveBlockToBlockOrderPosition(activeItem.key)
     setActiveItemIndex(undefined)
+    if (pendingLayoutRef.current) {
+      setGridLayout(pendingLayoutRef.current)
+      pendingLayoutRef.current = null
+    }
+    if (positionsStaleRef.current) {
+      positionsStaleRef.current = false
+      requestPositionsReinit()
+    }
     return true
   }
   function onBlockPressOut(key: string | number) {
@@ -435,13 +450,16 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
     startDragStartAnimation()
   }, [activeItemIndex])
   useEffect(() => {
-    if (hadInitBlockSize) {
-      initBlockPositions()
-      items.forEach(item => {
-        item.currentPosition.setValue(blockPositions[orderMap[item.key].order])
-      })
+    if (!hadInitBlockSize) return
+    if (isDraggingRef.current) {
+      positionsStaleRef.current = true
+      return
     }
-  }, [gridLayout])
+    initBlockPositions()
+    items.forEach(item => {
+      item.currentPosition.setValue(blockPositions[orderMap[item.key].order])
+    })
+  }, [hadInitBlockSize, blockWidth, blockHeight, positionsReinitCount])
   useEffect(() => {
     resetGridHeight()
   })
@@ -462,6 +480,8 @@ export const DraggableGrid = function<DataType extends IBaseItemType>(
         item={item.itemData}
         order={orderMap[item.key].order}
         renderItem={props.renderItem}
+        blockWidth={blockWidth}
+        blockHeight={blockHeight}
       />
     )
   })

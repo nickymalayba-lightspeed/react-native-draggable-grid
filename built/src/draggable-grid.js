@@ -23,18 +23,25 @@ exports.DraggableGrid = function (props) {
     var orderMap = react_1.useState({})[0];
     var itemMap = react_1.useState({})[0];
     var items = react_1.useState([])[0];
-    var _a = react_1.useState(0), blockHeight = _a[0], setBlockHeight = _a[1];
-    var _b = react_1.useState(0), blockWidth = _b[0], setBlockWidth = _b[1];
     var gridHeight = react_1.useState(new react_native_1.Animated.Value(0))[0];
-    var _c = react_1.useState(false), hadInitBlockSize = _c[0], setHadInitBlockSize = _c[1];
+    var _a = react_1.useState(false), hadInitBlockSize = _a[0], setHadInitBlockSize = _a[1];
     var dragStartAnimatedValue = react_1.useState(new react_native_1.Animated.Value(1))[0];
-    var _d = react_1.useState({
+    var _b = react_1.useState({
         x: 0,
         y: 0,
         width: 0,
         height: 0,
-    }), gridLayout = _d[0], setGridLayout = _d[1];
-    var _e = react_1.useState(), activeItemIndex = _e[0], setActiveItemIndex = _e[1];
+    }), gridLayout = _b[0], setGridLayout = _b[1];
+    var _c = react_1.useState(), activeItemIndex = _c[0], setActiveItemIndex = _c[1];
+    // Derived every render so itemHeight/numColumns prop changes apply even when they arrive
+    // before or after onLayout (iOS rotation does not guarantee ordering).
+    var blockWidth = gridLayout.width / props.numColumns;
+    var blockHeight = props.itemHeight || blockWidth;
+    // Layout/size changes that arrive mid-drag are deferred until release so the drag
+    // isn't disrupted, then flushed via pendingLayoutRef / the reinit counter.
+    var pendingLayoutRef = react_1.useRef(null);
+    var positionsStaleRef = react_1.useRef(false);
+    var _d = react_1.useReducer(function (n) { return n + 1; }, 0), positionsReinitCount = _d[0], requestPositionsReinit = _d[1];
     var isDraggingRef = react_1.useRef(false);
     // Always dispatches the latest props, since Block's memo comparator ignores handler-prop changes
     // and keeps whatever bound closure it received on its last actual render.
@@ -53,22 +60,23 @@ exports.DraggableGrid = function (props) {
     var moveThrottleFrameRef = react_1.useRef(0);
     var pendingDragPositionRef = react_1.useRef(null);
     var assessGridSize = function (event) {
-        var newBlockWidth = event.nativeEvent.layout.width / props.numColumns;
-        var newBlockHeight = props.itemHeight || newBlockWidth;
+        var layout = event.nativeEvent.layout;
         if (!hadInitBlockSize) {
-            setBlockWidth(newBlockWidth);
-            setBlockHeight(newBlockHeight);
-            setGridLayout(event.nativeEvent.layout);
+            setGridLayout(layout);
             setHadInitBlockSize(true);
+            return;
         }
-        else if (activeItemIndex === undefined &&
-            (newBlockWidth !== blockWidth || newBlockHeight !== blockHeight)) {
-            setBlockWidth(newBlockWidth);
-            setBlockHeight(newBlockHeight);
-            setGridLayout(event.nativeEvent.layout);
+        if (layout.width === gridLayout.width) {
+            pendingLayoutRef.current = null;
+            return;
         }
+        if (isDraggingRef.current || activeItemIndex !== undefined) {
+            pendingLayoutRef.current = layout;
+            return;
+        }
+        setGridLayout(layout);
     };
-    var _f = react_1.useState(false), panResponderCapture = _f[0], setPanResponderCapture = _f[1];
+    var _e = react_1.useState(false), panResponderCapture = _e[0], setPanResponderCapture = _e[1];
     var panResponder = react_native_1.PanResponder.create({
         onStartShouldSetPanResponder: function () { return true; },
         onStartShouldSetPanResponderCapture: function () { return false; },
@@ -211,6 +219,14 @@ exports.DraggableGrid = function (props) {
         activeItem.currentPosition.flattenOffset();
         moveBlockToBlockOrderPosition(activeItem.key);
         setActiveItemIndex(undefined);
+        if (pendingLayoutRef.current) {
+            setGridLayout(pendingLayoutRef.current);
+            pendingLayoutRef.current = null;
+        }
+        if (positionsStaleRef.current) {
+            positionsStaleRef.current = false;
+            requestPositionsReinit();
+        }
         return true;
     }
     function onBlockPressOut(key) {
@@ -379,13 +395,17 @@ exports.DraggableGrid = function (props) {
         startDragStartAnimation();
     }, [activeItemIndex]);
     react_1.useEffect(function () {
-        if (hadInitBlockSize) {
-            initBlockPositions();
-            items.forEach(function (item) {
-                item.currentPosition.setValue(blockPositions[orderMap[item.key].order]);
-            });
+        if (!hadInitBlockSize)
+            return;
+        if (isDraggingRef.current) {
+            positionsStaleRef.current = true;
+            return;
         }
-    }, [gridLayout]);
+        initBlockPositions();
+        items.forEach(function (item) {
+            item.currentPosition.setValue(blockPositions[orderMap[item.key].order]);
+        });
+    }, [hadInitBlockSize, blockWidth, blockHeight, positionsReinitCount]);
     react_1.useEffect(function () {
         resetGridHeight();
     });
@@ -393,7 +413,7 @@ exports.DraggableGrid = function (props) {
         diffData();
     }
     var itemList = items.map(function (item, itemIndex) {
-        return (<block_1.Block onPress={onBlockPress.bind(null, item.key)} onLongPress={onLongPressBlock.bind(null, item.key)} onPressOut={onBlockPressOut.bind(null, item.key)} panHandlers={panResponder.panHandlers} style={getBlockStyle(itemIndex)} dragStartAnimationStyle={getDragStartAnimation(itemIndex)} delayLongPress={props.delayLongPress || 300} key={item.key} item={item.itemData} order={orderMap[item.key].order} renderItem={props.renderItem}/>);
+        return (<block_1.Block onPress={onBlockPress.bind(null, item.key)} onLongPress={onLongPressBlock.bind(null, item.key)} onPressOut={onBlockPressOut.bind(null, item.key)} panHandlers={panResponder.panHandlers} style={getBlockStyle(itemIndex)} dragStartAnimationStyle={getDragStartAnimation(itemIndex)} delayLongPress={props.delayLongPress || 300} key={item.key} item={item.itemData} order={orderMap[item.key].order} renderItem={props.renderItem} blockWidth={blockWidth} blockHeight={blockHeight}/>);
     });
     return (<react_native_1.Animated.View style={[
         styles.draggableGrid,
